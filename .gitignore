@@ -4,3 +4,6 @@ __pycache__/
 *.db
 *.log
 *.egg-info/
+.DS_Store
+.idea/
+bin/.ipynb_checkpoints/
