@@ -1,6 +1,9 @@
 from flask import abort, Flask, jsonify, request
 from flask_cors import CORS
-from room import Room, User
+from enhanced_room import EnhancedRoom
+import uuid
+import numpy as np
+from constants import VoteStatus
 
 app = Flask(__name__)
 CORS(app)
@@ -9,13 +12,13 @@ CORS(app)
 def hello():
     return "Hello, World!"
 
-@app.route('/api/createRoom', methods=['POST'])
-def create_room():
-    room = Room()
+@app.route('/api/enhanced/createRoom', methods=['POST'])
+def create_enhanced_room():
+    room = EnhancedRoom()
     return jsonify(room_id=room.id)
 
-@app.route('/api/createUser', methods=['POST'])
-def create_user():
+@app.route('/api/enhanced/createUser', methods=['POST'])
+def create_enhanced_user():
     data = request.get_json()
     if data is None:
         abort(400, "Invalid JSON data")
@@ -28,34 +31,85 @@ def create_user():
     if not user_name:
         abort(400, "User name is empty or missing!")
 
-    user = Room.create_user(user_name, room_id)
-    return jsonify(user_id=user.id)
+    room = EnhancedRoom.get_room_by_id(room_id)
+    if not room:
+        abort(404, "Room not found")
 
-@app.route('/api/voteUpdate', methods=['POST'])
-def vote_update():
+    try:
+        user_id = room.add_user(user_name)
+        return jsonify(user_id=user_id)
+    except ValueError as e:
+        abort(400, str(e))
+
+@app.route('/api/enhanced/getNextMovie', methods=['GET'])
+def get_next_movie():
+    user_id = request.args.get('userId')
+    if not user_id:
+        abort(400, "User ID is empty or missing!")
+
+    # Find room containing this user
+    room = next((r for r in EnhancedRoom.rooms_by_id.values() if user_id in r.users), None)
+    if not room:
+        abort(404, "Room not found for this user")
+
+    try:
+        movie_info = room.get_movie_to_vote(user_id)
+        # Convert int64 to int
+        movie_info = {k: int(v) if isinstance(v, (int, np.integer)) else v for k, v in movie_info.items()}
+        return jsonify(movie_info)
+    except ValueError as e:
+        abort(404, str(e))
+
+@app.route('/api/enhanced/vote', methods=['POST'])
+def enhanced_vote():
     data = request.get_json()
     if data is None:
         abort(400, "Invalid JSON data")
 
     user_id = data.get('userId')
     movie_id = data.get('movieId')
+    vote = data.get('vote')  # should be 'like' or 'dislike'
 
     if not user_id:
         abort(400, "User ID is empty or missing!")
     if not movie_id:
         abort(400, "Movie ID is empty or missing!")
+    if vote not in ['like', 'dislike']:
+        abort(400, "Vote must be 'like' or 'dislike'")
 
-    user = User.get_user_by_id(user_id)
-    user.vote_for_movie(movie_id)
-    return jsonify(message=user.get_movie_stack().get_top_movies_str(5))
+    # Find room containing this user
+    room = next((r for r in EnhancedRoom.rooms_by_id.values() if user_id in r.users), None)
+    if not room:
+        abort(404, "Room not found for this user")
 
-@app.route('/api/getStack')
-def get_stack():
+    try:
+        vote_status = room.submit_vote(user_id, movie_id, vote)
+        return jsonify(status=vote_status.value)
+    except ValueError as e:
+        abort(400, str(e))
+
+@app.route('/api/enhanced/getRecommendations', methods=['GET'])
+def get_recommendations():
     user_id = request.args.get('userId')
     if not user_id:
         abort(400, "User ID is empty or missing!")
-    user = User.get_user_by_id(user_id)
-    return jsonify(top_movies=user.get_movie_stack().get_top_n_movies(5))
+
+    # Find room containing this user
+    room = next((r for r in EnhancedRoom.rooms_by_id.values() if user_id in r.users), None)
+    if not room:
+        abort(404, "Room not found for this user")
+
+    try:
+        recommendations = room.get_recommendations()
+        if recommendations["status"] == "error":
+            abort(500, recommendations["message"])
+        return jsonify(
+            userQueues=recommendations["queues"],
+            topMovies=recommendations["top_movies"],
+            movieTitles=recommendations["movie_titles"]
+        )
+    except ValueError as e:
+        abort(400, str(e))
 
 
 
