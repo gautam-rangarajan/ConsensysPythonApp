@@ -54,11 +54,14 @@ class EnhancedRoom:
         if user_id not in self.users:
             raise ValueError("User not found")
 
-        recommendations = self.get_recommendations()
-        if recommendations["status"] == "error":
-            raise ValueError(recommendations["message"])
-        
-        self.movie_queues[user_id].extend(recommendations["queues"][user_id])
+        if self.room_utils.get_user_vote_status(user_id) == VoteStatus.SEEDING:
+            print(f'Seeding incomplete, randomly selecting queue for user {user_id}')
+            self._initialize_voting_queues([user_id])
+        else:
+            recommendations = self.get_recommendations()
+            if recommendations["status"] == "error":
+                raise ValueError(recommendations["message"])
+            self.movie_queues[user_id].extend(recommendations["queues"][user_id])
 
     def get_movie_to_vote(self, user_id: str) -> Optional[dict]:
         """Get next movie for user to vote on"""
@@ -86,28 +89,12 @@ class EnhancedRoom:
             raise ValueError("User not found")
 
         self.users[user_id]["votes"][movie_id] = vote
-        self.room_utils.accept_user_vote((user_id, movie_id, vote))
-
-        # Check if this user has completed seeding
-        user_seeding_complete = len(self.users[user_id]["votes"]) >= SEED_VOTES_REQUIRED
-
-        # Check if all users have completed seeding
-        all_seeding_complete = all(
-            len(user["votes"]) >= SEED_VOTES_REQUIRED 
-            for user in self.users.values()
-        )
-
-        if all_seeding_complete:
-            return VoteStatus.SEEDING_COMPLETE
-        elif user_seeding_complete:
-            return VoteStatus.USER_SEEDING_COMPLETE
-        else:
-            return VoteStatus.SEEDING
+        return self.room_utils.accept_user_vote((user_id, movie_id, vote))
 
     def get_recommendations(self) -> dict:
         """Get recommendations after seeding is complete"""
         # breaking here
-        if not all(len(user["votes"]) >= SEED_VOTES_REQUIRED for user in self.users.values()):
+        if not all(self.room_utils.get_user_vote_status(user) == VoteStatus.SEEDING_COMPLETE for user in self.users.keys()):
             raise ValueError("Seeding not complete")
 
         # Get recommendations using EnhancedRoomUtils

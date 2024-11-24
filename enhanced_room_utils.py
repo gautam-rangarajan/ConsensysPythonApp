@@ -3,7 +3,7 @@ import csv
 from movie_vector_generator import MovieVectorGenerator
 from scipy import sparse
 from sklearn.metrics.pairwise import cosine_similarity
-from constants import MIN_VOTES_TO_UPDATE, DISLIKE_FACTOR
+from constants import MIN_VOTES_TO_UPDATE, DISLIKE_FACTOR, VoteStatus, SEED_VOTES_REQUIRED
 
 class UserProfileManager:
     def __init__(self, vector_dim, mvg):
@@ -12,17 +12,39 @@ class UserProfileManager:
         self.vector_dim = vector_dim
         self.mvg = mvg
 
+    def add_user(self, user_id):
+        if user_id not in self.user_votes:
+            self.user_votes[user_id] = {'processed_movies': [], 'processed_votes': [], 'unprocessed_movies': [], 'unprocessed_votes': [], 'unseen_movies': [], 'status': VoteStatus.SEEDING}
+
     def process_vote(self, user_id, movie_id, vote):
         if user_id not in self.user_votes:
-            self.user_votes[user_id] = {'processed_movies': [], 'processed_votes': [], 'unprocessed_movies': [], 'unprocessed_votes': []}
+            raise ValueError("User not found")
         
         self.user_votes[user_id]['unprocessed_movies'].append(movie_id)
         self.user_votes[user_id]['unprocessed_votes'].append(vote)
         
         if len(self.user_votes[user_id]['unprocessed_votes']) >= MIN_VOTES_TO_UPDATE:
             self.update_user_profile(user_id)
+
+        if len(set(self.user_votes[user_id]['processed_movies'])) - len(set(self.user_votes[user_id]['unseen_movies'])) >= SEED_VOTES_REQUIRED:
+            self.user_votes[user_id]['status'] = VoteStatus.USER_SEEDING_COMPLETE
         
         print(f"Updated votes activity for this user: {self.user_votes[user_id]}")
+
+        # Check if all users have completed seeding
+        all_users_complete = all(
+            user_votes['status'] == VoteStatus.USER_SEEDING_COMPLETE 
+            for user_votes in self.user_votes.values()
+        )
+
+        # If all users are complete, update everyone's status to seeding complete
+        if all_users_complete:
+            for user_votes in self.user_votes.values():
+                user_votes['status'] = VoteStatus.SEEDING_COMPLETE
+            return VoteStatus.SEEDING_COMPLETE
+
+        # Otherwise return current user's status
+        return self.user_votes[user_id]['status']
 
     def update_user_profile(self, user_id):
         if user_id not in self.user_profiles:
@@ -35,6 +57,9 @@ class UserProfileManager:
                 self.user_profiles[user_id] += movie_vector
             elif vote == 'dislike':
                 self.user_profiles[user_id] -= (DISLIKE_FACTOR * movie_vector)
+            elif vote == 'not seen':
+                votes['unseen_movies'].append(movie_id)
+                continue
         
         votes['processed_movies'].extend(votes['unprocessed_movies'])
         votes['processed_votes'].extend(votes['unprocessed_votes'])
@@ -47,6 +72,7 @@ class RoomProfileManager:
     def __init__(self, vector_dim, mvg):
         self.room_profile = np.zeros(vector_dim)
         self.processed_movies = set()
+        self.unseen_movies = set()
         self.mvg = mvg
 
     def update_room_profile(self, movie_id, vote):
@@ -56,6 +82,9 @@ class RoomProfileManager:
                 self.room_profile += movie_vector
             elif vote == 'dislike':
                 self.room_profile -= movie_vector
+            elif vote == 'not seen':
+                self.unseen_movies.add(movie_id)
+                pass
             self.processed_movies.add(movie_id)
             print("Updated room profile")
         print(f"Set size: {len(self.processed_movies)}")
@@ -84,25 +113,47 @@ class EnhancedRoomUtils:
 
     def accept_user_vote(self, user_vote):
         user_id, movie_id, vote = user_vote
-        self.user_profile_manager.process_vote(user_id, movie_id, vote)
+        status = self.user_profile_manager.process_vote(user_id, movie_id, vote)
         self.room_profile_manager.update_room_profile(movie_id, vote)
-
+        return status
+    
+    def get_user_vote_status(self, user_id: str) -> VoteStatus:
+        """Get the current vote status for a user"""
+        if user_id not in self.user_profile_manager.user_votes.keys():
+            raise ValueError("User not found")
+        return self.user_profile_manager.user_votes[user_id]['status']
+    
     def seed_user_and_room_profiles(self, user_ids):
         user_queues = {}
         for user_id in user_ids:
+            self.user_profile_manager.add_user(user_id)
             random_movies = self.mvg.get_random_movies(MIN_VOTES_TO_UPDATE)
             user_queues[user_id] = [movie[0] for movie in random_movies]  # Assuming movie[0] is the movie ID
         
         return user_queues
 
+    def exclude_movies_from_recommendations(self):
+        # TODO: We need to be more inteligent about what movies to exclude from recommendations.
+        # For now, we'll just exclude all the movies that have been shown to ANY user.
+        # We may need to take room settings into account. Examples:
+        # - If the room is set to only show new movies, we should exclude all the movies that have been shown to ANY user.
+        # - If the room is set to okay to rewatch, we should exclude movies that the users have disliked.
+        # Then we need to make sure these movies are allocated properly. The current logic in get_updated_user_queues assumes
+        # every movie has a similarity score for every user, which will not be the case if we start returning movies that some users
+        # have seen but others havent. We need to modify get_updated_user_queues to handle this.
+        # return self.room_profile_manager.processed_movies - self.room_profile_manager.unseen_movies
+        return self.room_profile_manager.processed_movies
+    
     def get_updated_user_queues(self, num_recommendations):
         num_users = len(self.user_profile_manager.user_profiles)
         total_movies_shown = len(self.room_profile_manager.processed_movies)
         movie_fetch_size = num_recommendations * num_users
 
         # Step 1: Get room recommendations
+        exclude_movie_ids = self.exclude_movies_from_recommendations()
+        print(exclude_movie_ids)
         room_recommendations = self.recommendation_engine.get_recommendations(
-            self.room_profile_manager.room_profile, movie_fetch_size, self.room_profile_manager.processed_movies
+            self.room_profile_manager.room_profile, movie_fetch_size, exclude_movie_ids
         )
 
         # Step 2: Order recommendations

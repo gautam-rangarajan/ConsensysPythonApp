@@ -74,8 +74,8 @@ def enhanced_vote():
         abort(400, "User ID is empty or missing!")
     if not movie_id:
         abort(400, "Movie ID is empty or missing!")
-    if vote not in ['like', 'dislike']:
-        abort(400, "Vote must be 'like' or 'dislike'")
+    if vote not in ['like', 'dislike', 'not seen']:
+        abort(400, "Vote must be 'like', 'dislike', or 'not seen'")
 
     # Find room containing this user
     room = next((r for r in EnhancedRoom.rooms_by_id.values() if user_id in r.users), None)

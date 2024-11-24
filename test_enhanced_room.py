@@ -4,6 +4,7 @@ import json
 import time
 from constants import VoteStatus
 
+# Spin up the server so APIs are active first - flask run
 BASE_URL = "http://localhost:5000"
 
 def test_enhanced_room():
@@ -41,7 +42,7 @@ def test_enhanced_room():
                     json={
                         "userId": user_id,
                         "movieId": movie_id,
-                        "vote": random.choice(["like", "dislike"])
+                        "vote": random.choice(["like", "dislike", "not seen"])
                     }
                 )
                 vote_data = vote_response.json()
@@ -75,6 +76,7 @@ def test_enhanced_room():
                     for movie in top_movies:
                         print(f'{movie_titles[str(movie)]}: {movie}')
                     return
+                # input("Press Enter to continue...")
                     
             except Exception as e:
                 print(f"Error in seeding phase: {e}")
