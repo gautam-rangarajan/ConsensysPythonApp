@@ -30,6 +30,7 @@ class EnhancedRoom:
         self.users = {}  # user_id -> user_name
         self.seeding_phase = True
         self.movie_queues = {}  # user_id -> list of movie_ids to vote on
+        self.voting_started = False  # New field to track if voting has started
         
         EnhancedRoom.rooms_by_id[self.id] = self
 
@@ -136,6 +137,27 @@ class EnhancedRoom:
         self.movie_queues = {}
         for user_id in self.users:
             self._initialize_voting_queues([user_id])
+
+    def get_room_status(self) -> dict:
+        """Get current room status including users and configuration"""
+        users_list = [
+            {"id": user_id, "name": user_data["name"]} 
+            for user_id, user_data in self.users.items()
+        ]
+        
+        return {
+            "roomId": self.id,
+            "users": users_list,
+            "config": {
+                "years": self.config.years,
+                "genres": self.config.genres
+            },
+            "votingStarted": self.voting_started
+        }
+
+    def start_voting(self) -> None:
+        """Start the voting phase for this room"""
+        self.voting_started = True
 
     @classmethod
     def get_room_by_id(cls, room_id: str) -> Optional['EnhancedRoom']:

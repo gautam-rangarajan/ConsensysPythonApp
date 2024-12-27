@@ -136,5 +136,37 @@ def update_room_config():
     except ValueError as e:
         abort(400, str(e))
 
+@app.route('/api/enhanced/getRoomStatus', methods=['GET'])
+def get_room_status():
+    room_id = request.args.get('roomId')
+    if not room_id:
+        return jsonify({'error': 'Room ID is required'}), 400
+
+    room = EnhancedRoom.get_room_by_id(room_id)
+    if not room:
+        return jsonify({'error': 'Room not found'}), 404
+
+    try:
+        status = room.get_room_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/enhanced/startVoting', methods=['POST'])
+def start_voting():
+    room_id = request.json.get('roomId')
+    if not room_id:
+        return jsonify({'error': 'Room ID is required'}), 400
+
+    room = EnhancedRoom.get_room_by_id(room_id)
+    if not room:
+        return jsonify({'error': 'Room not found'}), 404
+
+    try:
+        room.start_voting()
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 
