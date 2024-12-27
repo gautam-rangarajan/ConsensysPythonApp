@@ -26,10 +26,8 @@ class UserProfileManager:
         if len(self.user_votes[user_id]['unprocessed_votes']) >= MIN_VOTES_TO_UPDATE:
             self.update_user_profile(user_id)
 
-        if len(set(self.user_votes[user_id]['processed_movies'])) - len(set(self.user_votes[user_id]['unseen_movies'])) >= SEED_VOTES_REQUIRED:
+        if self.user_votes[user_id]['status'] == VoteStatus.SEEDING and len(set(self.user_votes[user_id]['processed_movies'])) - len(set(self.user_votes[user_id]['unseen_movies'])) >= SEED_VOTES_REQUIRED:
             self.user_votes[user_id]['status'] = VoteStatus.USER_SEEDING_COMPLETE
-        
-        print(f"Updated votes activity for this user: {self.user_votes[user_id]}")
 
         # Check if all users have completed seeding
         all_users_complete = all(
@@ -41,7 +39,8 @@ class UserProfileManager:
         if all_users_complete:
             for user_votes in self.user_votes.values():
                 user_votes['status'] = VoteStatus.SEEDING_COMPLETE
-            return VoteStatus.SEEDING_COMPLETE
+
+        print(f"Updated votes activity for this user: {self.user_votes[user_id]}")
 
         # Otherwise return current user's status
         return self.user_votes[user_id]['status']

@@ -7,6 +7,7 @@ from movie_vector_generator import MovieVectorGenerator
 import pandas as pd
 from constants import VoteStatus, SEED_VOTES_REQUIRED
 from room_config import RoomConfig
+import time
 
 class EnhancedRoom:
     rooms_by_id = {}
@@ -31,6 +32,7 @@ class EnhancedRoom:
         self.seeding_phase = True
         self.movie_queues = {}  # user_id -> list of movie_ids to vote on
         self.voting_started = False  # New field to track if voting has started
+        self.voting_start_time = None  # Add this field
         
         EnhancedRoom.rooms_by_id[self.id] = self
 
@@ -124,10 +126,10 @@ class EnhancedRoom:
             "movie_titles": id_to_title_dict
         }
 
-    def update_config(self, years: List[int], genres: Optional[List[str]] = None):
+    def update_config(self, years: List[int], genres: Optional[List[str]] = None, voting_duration: Optional[int] = None):
         """Update room configuration and refresh movie data"""
-        print(f"Updating room config to years={years}, genres={genres}")
-        self.config = RoomConfig(years=years, genres=genres)
+        print(f"Updating room config to years={years}, genres={genres}, voting_duration={voting_duration}")
+        self.config = RoomConfig(years=years, genres=genres, voting_duration=voting_duration)
         
         # Update MovieVectorGenerator with new config
         self.mvg = MovieVectorGenerator(config=self.config)
@@ -145,19 +147,43 @@ class EnhancedRoom:
             for user_id, user_data in self.users.items()
         ]
         
+        # Check if all users have completed seeding
+        seeding_complete = all(
+            self.room_utils.get_user_vote_status(user_id) == VoteStatus.SEEDING_COMPLETE 
+            for user_id in self.users.keys()
+        )
+        
         return {
             "roomId": self.id,
             "users": users_list,
             "config": {
                 "years": self.config.years,
-                "genres": self.config.genres
+                "genres": self.config.genres,
+                "voting_duration": self.config.voting_duration
             },
-            "votingStarted": self.voting_started
+            "votingStarted": self.voting_started,
+            "remainingTime": self.get_remaining_time(),
+            "seedingComplete": seeding_complete
         }
 
-    def start_voting(self) -> None:
+    def start_voting(self) -> dict:
         """Start the voting phase for this room"""
         self.voting_started = True
+        self.voting_start_time = time.time()
+        return {'status': 'success'}
+
+    def is_voting_ended(self):
+        if not self.voting_started or not self.voting_start_time:
+            return False
+        elapsed_time = time.time() - self.voting_start_time
+        return elapsed_time >= self.config.voting_duration
+
+    def get_remaining_time(self):
+        """Get remaining voting time in seconds"""
+        if not self.voting_started or not self.voting_start_time:
+            return self.config.voting_duration
+        elapsed_time = time.time() - self.voting_start_time
+        return max(0, self.config.voting_duration - elapsed_time)
 
     @classmethod
     def get_room_by_id(cls, room_id: str) -> Optional['EnhancedRoom']:

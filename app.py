@@ -13,7 +13,7 @@ def hello():
     return "Hello, World!"
 
 @app.route('/api/enhanced/createRoom', methods=['POST'])
-def create_enhanced_room():
+def create_room():
     room = EnhancedRoom()
     return jsonify(room_id=room.id)
 
@@ -80,7 +80,14 @@ def enhanced_vote():
     # Find room containing this user
     room = next((r for r in EnhancedRoom.rooms_by_id.values() if user_id in r.users), None)
     if not room:
-        abort(404, "Room not found for this user")
+        return jsonify({'error': 'Room not found'}), 404
+
+    # Check if voting time has expired
+    if room.is_voting_ended():
+        return jsonify({
+            'status': 'voting_ended',
+            'message': 'Voting time has expired'
+        })
 
     try:
         vote_status = room.submit_vote(user_id, movie_id, vote)
@@ -120,18 +127,23 @@ def update_room_config():
     room_id = data.get('roomId')
     years = data.get('years')
     genres = data.get('genres')
+    voting_duration = data.get('votingDuration')
 
     if not room_id:
         abort(400, "Room ID is empty or missing!")
     if not years:
         abort(400, "Years list is empty or missing!")
 
+    # Validate voting duration if provided
+    if voting_duration is not None and not (30 <= voting_duration <= 600):
+        abort(400, "Voting duration must be between 30 and 600 seconds")
+
     room = EnhancedRoom.get_room_by_id(room_id)
     if not room:
         abort(404, "Room not found")
 
     try:
-        room.update_config(years=years, genres=genres)
+        room.update_config(years=years, genres=genres, voting_duration=voting_duration)
         return jsonify({"status": "success"})
     except ValueError as e:
         abort(400, str(e))
@@ -139,18 +151,12 @@ def update_room_config():
 @app.route('/api/enhanced/getRoomStatus', methods=['GET'])
 def get_room_status():
     room_id = request.args.get('roomId')
-    if not room_id:
-        return jsonify({'error': 'Room ID is required'}), 400
-
     room = EnhancedRoom.get_room_by_id(room_id)
+    
     if not room:
         return jsonify({'error': 'Room not found'}), 404
 
-    try:
-        status = room.get_room_status()
-        return jsonify(status)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return jsonify(room.get_room_status())
 
 @app.route('/api/enhanced/startVoting', methods=['POST'])
 def start_voting():

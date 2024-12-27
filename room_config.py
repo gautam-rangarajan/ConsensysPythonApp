@@ -5,6 +5,7 @@ from dataclasses import dataclass
 class RoomConfig:
     years: List[int]
     genres: Optional[List[str]] = None
+    voting_duration: Optional[int] = None
 
     def __post_init__(self):
         if not self.years:
