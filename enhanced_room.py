@@ -6,6 +6,7 @@ from enhanced_room_utils import EnhancedRoomUtils
 from movie_vector_generator import MovieVectorGenerator
 import pandas as pd
 from constants import VoteStatus, SEED_VOTES_REQUIRED
+from room_config import RoomConfig
 
 class EnhancedRoom:
     rooms_by_id = {}
@@ -13,13 +14,17 @@ class EnhancedRoom:
     def __init__(self):
         self.id = str(uuid.uuid4()).replace('-', '')[:16]
         
+        # Initialize room config
+        self.config = RoomConfig(years=[2024])  # Default config
+        
         # Initialize components
-        self.mvg = MovieVectorGenerator()
+        self.mvg = MovieVectorGenerator(config=self.config)
         self.room_utils = EnhancedRoomUtils(self.mvg)
         
-        # Get 2023 movies
+        # TODO: Instead of getting all movies, only get the ones returned by the recommendation engine. 
+        # The other option is to just make sure all the required data is in the vector db.
         movie_fetcher = MovieFetcher()
-        self.movies_df = movie_fetcher.get_movies_from_years([2023])
+        self.movies_df = movie_fetcher.get_movies()
         
         # Track users and their votes
         self.users = {}  # user_id -> user_name
@@ -117,6 +122,20 @@ class EnhancedRoom:
             "top_movies": top_movies_in_the_room,
             "movie_titles": id_to_title_dict
         }
+
+    def update_config(self, years: List[int], genres: Optional[List[str]] = None):
+        """Update room configuration and refresh movie data"""
+        print(f"Updating room config to years={years}, genres={genres}")
+        self.config = RoomConfig(years=years, genres=genres)
+        
+        # Update MovieVectorGenerator with new config
+        self.mvg = MovieVectorGenerator(config=self.config)
+        self.room_utils = EnhancedRoomUtils(self.mvg)
+        
+        # Reset movie queues since we have new data
+        self.movie_queues = {}
+        for user_id in self.users:
+            self._initialize_voting_queues([user_id])
 
     @classmethod
     def get_room_by_id(cls, room_id: str) -> Optional['EnhancedRoom']:

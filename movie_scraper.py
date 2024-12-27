@@ -203,8 +203,8 @@ class MovieScraper:
             print(e)
 
 
-start = "2022-01-01"
-end = "2023-12-31"
+start = "2023-12-31"
+end = "2024-12-07"
 movie_scraper = MovieScraper()
 response = movie_scraper.scrape_and_save(start, end)
 # print(response)

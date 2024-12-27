@@ -111,5 +111,30 @@ def get_recommendations():
     except ValueError as e:
         abort(400, str(e))
 
+@app.route('/api/enhanced/updateRoomConfig', methods=['POST'])
+def update_room_config():
+    data = request.get_json()
+    if data is None:
+        abort(400, "Invalid JSON data")
+
+    room_id = data.get('roomId')
+    years = data.get('years')
+    genres = data.get('genres')
+
+    if not room_id:
+        abort(400, "Room ID is empty or missing!")
+    if not years:
+        abort(400, "Years list is empty or missing!")
+
+    room = EnhancedRoom.get_room_by_id(room_id)
+    if not room:
+        abort(404, "Room not found")
+
+    try:
+        room.update_config(years=years, genres=genres)
+        return jsonify({"status": "success"})
+    except ValueError as e:
+        abort(400, str(e))
+
 
 

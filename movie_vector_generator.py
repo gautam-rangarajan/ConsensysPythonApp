@@ -1,13 +1,15 @@
 import psycopg2
 import numpy as np
 import random
+from room_config import RoomConfig
 
 class MovieVectorGenerator:
-    def __init__(self, embedding_length=None, db_name="pgvector_demo", db_user="gautam", db_password=""):
+    def __init__(self, config: RoomConfig = None, embedding_length=None, db_name="pgvector_demo", db_user="gautam", db_password=""):
         self.db_name = db_name
         self.db_user = db_user
         self.db_password = db_password
         self.vector_table_name = "movie_vectors"
+        self.config = config
         if embedding_length is None:
             self.embedding_length = self.fetch_embedding_length()
         else:
@@ -35,9 +37,9 @@ class MovieVectorGenerator:
     def connect_to_db(self):
         return psycopg2.connect(f"dbname={self.db_name} user={self.db_user} password={self.db_password}")
 
-    def insert_vector(self, cur, id, embedding, movie_title):
-        cur.execute(f"INSERT INTO {self.vector_table_name} (id, vector, movie_title) VALUES (%s, %s::vector, %s)", 
-                    (id, embedding.tolist(), movie_title))
+    def insert_vector(self, cur, id, embedding, movie_title, year, genres):
+        cur.execute(f"INSERT INTO {self.vector_table_name} (id, vector, movie_title, year, genres) VALUES (%s, %s::vector, %s, %s, %s)", 
+                    (id, embedding.tolist(), movie_title, year, genres))
 
     def insert_vectors(self, vectors_data, cur=None):
         if cur is None:
@@ -48,8 +50,8 @@ class MovieVectorGenerator:
             should_close = False
 
         print(f"Inserting vectors with length {self.embedding_length}")
-        for id, vector, movie_title in vectors_data:
-            self.insert_vector(cur, id, vector, movie_title)
+        for id, vector, movie_title, year, genres in vectors_data:
+            self.insert_vector(cur, id, vector, movie_title, int(year), genres)
         print(f"Done inserting vectors.")
 
         if should_close:
@@ -70,29 +72,51 @@ class MovieVectorGenerator:
 
     def _find_similar_vectors(self, cur, query, num_recommendations):
         query_list = query.tolist()
+        
+        # Build the WHERE clause using config
+        where_conditions = []
+        params = [query_list]  # Start with the query vector
+        
+        if self.config:
+            if self.config.years:
+                # Filter by any of the years in the config
+                where_conditions.append("year = ANY(%s)")
+                params.append(self.config.years)
+            
+            if self.config.genres:
+                # Filter movies that contain ANY specified genres
+                where_conditions.append("genres && %s")
+                params.append(self.config.genres)
+        
+        # Construct the final WHERE clause
+        where_clause = " AND ".join(where_conditions)
+        where_sql = f"WHERE {where_clause}" if where_conditions else ""
+        
         cur.execute(f"""
             SELECT id, vector, movie_title,
                     1 - (vector <=> %s::vector) as similarity
             FROM {self.vector_table_name}
+            {where_sql}
             ORDER BY similarity DESC
             LIMIT %s
-        """, (query_list, num_recommendations))
+        """, params + [num_recommendations])
+        
         return cur.fetchall()
 
     def get_updated_embeddings(self, cur, new_dimension):
         try:
-            cur.execute(f"SELECT id, vector, movie_title FROM {self.vector_table_name}")
+            cur.execute(f"SELECT id, vector, movie_title, year, genres FROM {self.vector_table_name}")
             existing_data = cur.fetchall()
             
             new_embeddings = []
-            for id, vector, movie_title in existing_data:
+            for id, vector, movie_title, year, genres in existing_data:
                 vector = np.array(vector.strip('[]').split(','), dtype=float)
                 current_length = len(vector)
                 if new_dimension > current_length:
                     new_vector = np.pad(vector, (0, new_dimension - current_length))
                 else:
                     new_vector = vector[:new_dimension]
-                new_embeddings.append((id, new_vector, movie_title))
+                new_embeddings.append((id, new_vector, movie_title, year, genres))
             
             print(f"Created {len(new_embeddings)} new embeddings with dimension {new_dimension}")
             return new_embeddings
@@ -132,7 +156,9 @@ class MovieVectorGenerator:
         CREATE TABLE {self.vector_table_name} (
             id INTEGER PRIMARY KEY,
             vector vector({self.embedding_length}),
-            movie_title TEXT
+            movie_title TEXT,
+            year INTEGER,
+            genres TEXT[]
         )
         """)
 
@@ -195,11 +221,11 @@ if __name__ == "__main__":
 
     # Generate sample data (in a real scenario, this would be your actual data)
     sample_data = [
-        (1, np.random.rand(initial_embedding_length), "The Shawshank Redemption"),
-        (2, np.random.rand(initial_embedding_length), "The Godfather"),
-        (3, np.random.rand(initial_embedding_length), "The Dark Knight"),
-        (4, np.random.rand(initial_embedding_length), "Pulp Fiction"),
-        (5, np.random.rand(initial_embedding_length), "Forrest Gump"),
+        (1, np.random.rand(initial_embedding_length), "The Shawshank Redemption", 1994, ["Drama"]),
+        (2, np.random.rand(initial_embedding_length), "The Godfather", 1972, ["Crime", "Drama"]),
+        (3, np.random.rand(initial_embedding_length), "The Dark Knight", 2008, ["Action", "Crime", "Drama"]),
+        (4, np.random.rand(initial_embedding_length), "Pulp Fiction", 1994, ["Crime", "Drama"]),
+        (5, np.random.rand(initial_embedding_length), "Forrest Gump", 1994, ["Drama", "Romance"]),
     ]
 
     mvg = MovieVectorGenerator(initial_embedding_length)
